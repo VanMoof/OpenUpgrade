@@ -2546,9 +2546,15 @@ class BaseModel(object):
                                         "Use a search view instead if you simply want to make the field searchable."
                                     _schema.warning(msg, self._table, field.type, name)
                             if res2 and not field.index:
-                                cr.execute('DROP INDEX "%s_%s_index"' % (self._table, name))
-                                cr.commit()
-                                msg = "Table '%s': dropping index for column '%s' of type '%s' as it is not required anymore"
+                                # OpenUpgrade: do not drop indexes
+                                # Odoo will drop any index that is defined in any other module than the module
+                                # that adds the column itself. Such indexes were supposedly added by customization
+                                # modules because they were needed in real life scenarios. Typically, removing
+                                # such indexes are harmful to the performance of the migration, plus it adds the
+                                # cost of re-adding the indexes on the upgrade of the module that defines them.
+                                # cr.execute('DROP INDEX "%s_%s_index"' % (self._table, name))
+                                # cr.commit()
+                                msg = "Table '%s': not dropping index for column '%s' of type '%s'"
                                 _schema.debug(msg, self._table, name, field.type)
 
                             if field.type == 'many2one':
