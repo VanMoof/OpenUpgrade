@@ -365,25 +365,12 @@ def migrate_reconcile(cr):
     # but have not been reconciled, and therefore were not updated by the
     # migration:
     cr.execute(
-        """\
-        WITH subquery AS (
-            SELECT
-                aml.id as id,
-                COALESCE(aml.debit, 0.0) - COALESCE(aml.credit, 0.0)
-                    AS amount_residual
-            FROM account_move_line aml
-            JOIN account_account aa on aml.account_id = aa.id
-            WHERE aa.reconcile
-              AND aml.reconcile_id IS NULL
-              AND aml.reconcile_partial_id IS NULL
-        )
-        UPDATE account_move_line aml
-        SET amount_residual = sq.amount_residual,
-            amount_residual_currency = aml.amount_currency
-        FROM subquery sq
-        WHERE aml.id = sq.id
-        """
-    )
+        """UPDATE account_move_line
+        SET amount_residual = COALESCE(debit, 0.0) - COALESCE(credit, 0.0),
+            amount_residual_currency = amount_currency
+        WHERE reconcile_id IS NULL AND reconcile_partial_id IS NULL
+            AND account_id IN (SELECT id FROM account_account WHERE reconcile);
+        """)
     _logger.info("Updated amount_residual for unreconciled lines.")
     # Now fill many2many relation to link invoices to payments
     cr.execute(
@@ -461,48 +448,83 @@ def migrate_reconcile(cr):
     )
     _logger.info("Updated account_move.matched_percentage.")
     cr.execute(
-        """\
-        WITH subquery AS (
-            SELECT
-                aml.id as id,
-                CASE
-                WHEN aj.type IN ('sale', 'purchase')
-                THEN am.matched_percentage * aml.debit
-                ELSE aml.debit
-                END as debit_cash_basis,
-                CASE
-                WHEN aj.type IN ('sale', 'purchase')
-                THEN am.matched_percentage * aml.credit
-                ELSE aml.credit
-                END as credit_cash_basis
-            FROM account_move_line aml
-            JOIN account_move am ON aml.move_id = am.id
-            JOIN account_journal aj ON aml.journal_id = aj.id
-        )
-        UPDATE account_move_line
-        SET
-            debit_cash_basis = ROUND(sq.debit_cash_basis, 2),
-            credit_cash_basis = ROUND(sq.credit_cash_basis, 2),
-            balance_cash_basis = ROUND(
-                sq.debit_cash_basis - sq.credit_cash_basis, 2)
-        FROM subquery sq
-        WHERE account_move_line.id = sq.id
-        """
-    )
+        """ UPDATE account_move_line aml
+        SET debit_cash_basis =
+            CASE WHEN aj.type IN ('sale', 'purchase')
+                 THEN ROUND(am.matched_percentage * aml.debit, 2)
+                 ELSE aml.debit
+            END,
+        credit_cash_basis =
+            CASE WHEN aj.type IN ('sale', 'purchase')
+                 THEN ROUND(am.matched_percentage * aml.credit, 2)
+                 ELSE aml.credit
+            END,
+        balance_cash_basis =
+            CASE WHEN aj.type IN ('sale', 'purchase')
+                 THEN ROUND(am.matched_percentage * (aml.debit - aml.credit),
+                            2)
+                 ELSE aml.debit - aml.credit
+            END
+        FROM account_move am JOIN account_journal aj ON aj.id = am.journal_id
+        WHERE aml.move_id = am.id """)
     _logger.info("Updated account_move_line *_cash_basis.")
 
 
 def invoice_recompute(env):
+    """ Recompute residual/reconciled fields of all invoices.
+    Set non-multicurrency cases with a query, then trigger ORM
+    for the multicurrency cases. """
+    openupgrade.logged_query(
+        env.cr,
+        """
+        CREATE TEMPORARY TABLE _openupgrade_account_invoice_residual (
+            invoice_id INT, sign INT,
+            residual FLOAT, residual_company FLOAT);
+        INSERT INTO _openupgrade_account_invoice_residual
+        SELECT ai.id,
+            CASE WHEN ai.type IN ('in_refund', 'out_refund')
+            THEN -1 ELSE 1 END,
+            SUM(CASE WHEN aml.currency_id IS NOT NULL
+                THEN aml.amount_residual_currency
+                ELSE aml.amount_residual END),
+            SUM(aml.amount_residual)
+        FROM account_invoice ai, res_company rc, account_move_line aml
+        WHERE ai.company_id = rc.id AND ai.move_id = aml.move_id
+            AND aml.account_id IN (SELECT id FROM account_account
+                WHERE internal_type IN ('receivable', 'payable'))
+            AND COALESCE(aml.currency_id, rc.currency_id) = ai.currency_id
+        GROUP BY ai.id, aml.currency_id, rc.currency_id;
+        UPDATE account_invoice ai
+        SET residual_company_signed = tmp.sign * ABS(tmp.residual_company),
+            residual_signed = tmp.sign * ABS(tmp.residual),
+            residual = ABS(tmp.residual),
+            reconciled = (ROUND(tmp.residual / rc.rounding) = 0)
+        FROM _openupgrade_account_invoice_residual tmp,
+            res_currency rc
+        WHERE tmp.invoice_id = ai.id AND rc.id = ai.currency_id;
+        """)
+    # Select multicurrency invoices that need to be recomputed by Odoo
+    env.cr.execute(
+        """ SELECT ai.id FROM account_invoice ai
+        JOIN res_company rc ON rc.id = ai.company_id
+        WHERE EXISTS(
+            SELECT 1 FROM account_move_line aml
+            WHERE aml.move_id = ai.move_id
+                AND COALESCE(aml.currency_id, rc.currency_id)
+                    != ai.currency_id) """)
+    invoice_ids = [inv_id for inv_id, in env.cr.fetchall()]
     set_workflow_org = models.BaseModel.step_workflow
     models.BaseModel.step_workflow = lambda *args, **kwargs: None
-    to_recompute = env['account.invoice'].search([])
+    to_recompute = env['account.invoice'].browse(invoice_ids)
     for field in [
             'residual', 'residual_signed',
             'residual_company_signed', 'reconciled']:
         env.add_todo(env['account.invoice']._fields[field], to_recompute)
     env['account.invoice'].recompute()
     models.BaseModel.step_workflow = set_workflow_org
-    _logger.info("Forced recompute of account_invoice fields.")
+    _logger.info(
+        "Forced ORM recompute of residual fields for %s multicurrency "
+        "invoices", len(invoice_ids))
 
 
 @openupgrade.migrate(no_version=True, use_env=True)
