@@ -2322,7 +2322,7 @@ class BaseModel(object):
         self._m2o_add_foreign_key_checked(source_field, dest_model, ondelete)
 
     @api.model_cr_context
-    def _init_column(self, column_name):
+    def _init_column(self, column_name, dont_write=False):
         """ Initialize the value of the given column for existing rows. """
         # get the default value; ideally, we should use default_get(), but it
         # fails due to ir.values not being ready
@@ -2339,6 +2339,8 @@ class BaseModel(object):
         # the same as NULL - this saves us an expensive query on large tables.
         necessary = (value is not None) if field.type != 'boolean' else value
         if necessary:
+            if dont_write:  # OpenUpgrade: write defaults in one query per table
+                return column_name, field.column_format, value
             _logger.debug("Table '%s': setting default value of new column %s to %r",
                           self._table, column_name, value)
             query = 'UPDATE "%s" SET "%s"=%s WHERE "%s" IS NULL' % (
@@ -2403,6 +2405,8 @@ class BaseModel(object):
             # retrieve existing database columns
             column_data = self._select_column_data()
 
+            defaults = []
+            post_init_fields = []
             for name, field in self._fields.iteritems():
                 if name == 'id':
                     continue
@@ -2565,8 +2569,41 @@ class BaseModel(object):
 
                         # initialize it
                         if has_rows:
-                            self._init_column(name)
+                            # OpenUpgrade: defer setting defaults
+                            try:
+                                default = self._init_column(name, dont_write=True)
+                                if default:
+                                    defaults.append(default)
+                            except TypeError as e:
+                                if 'dont_write' in repr(e):
+                                    # The method was overridden and does not have our additional parameter
+                                    self._init_column(name)
+                                else:
+                                    raise
 
+                        # Defer further initialization until after the defaults are set
+                        post_init_fields.append((name, field))
+
+            # Openupgrade: set defaults in one query
+            if defaults:
+                from openupgradelib import openupgrade
+                identifiers = [psycopg2.sql.Identifier(self._table)]
+                formattings = []
+                values = []
+                query = (
+                    'UPDATE {} SET ' + ', '.join(len(defaults) * ['{} = %s']))
+                for column, fmt, value in defaults:
+                    identifiers.append(psycopg2.sql.Identifier(column))
+                    formattings.append(fmt)
+                    values.append(value)
+                query = query % tuple(formattings)
+                openupgrade.logged_query(
+                    cr, psycopg2.sql.SQL(query).format(*identifiers),
+                    tuple(values))
+
+            for name, field in post_init_fields:
+                if True:  # Preserve indentation level
+                    if True:  # Preserve indentation level
                         # remember new-style stored fields with compute method
                         if field.compute:
                             stored_fields.append(field)
