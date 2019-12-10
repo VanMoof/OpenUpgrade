@@ -10,6 +10,25 @@ from openupgradelib import openupgrade
 from openerp import api, SUPERUSER_ID
 
 
+def custom_account_invoice_discount_lines_compat(env):
+    """ Discount lines are linked to the originating order line which is no
+    longer compatible with the 9.0+ data model in which the invoiced qty
+    of the order line is derived from this relationship. Moving these lines
+    out of the way for further processing. """
+    env.cr.execute(
+        """
+CREATE TABLE vanmoof_sale_order_line_invoice_discount_line_rel
+    (LIKE sale_order_line_invoice_rel);
+WITH rows AS (
+    DELETE FROM sale_order_line_invoice_rel r
+    USING account_invoice_line l
+    WHERE l.id = r.invoice_line_id
+        AND l.discount_line
+    RETURNING r.order_line_id, r.invoice_line_id)
+INSERT INTO vanmoof_sale_order_line_invoice_discount_line_rel
+(order_line_id, invoice_line_id) SELECT * FROM rows; """)
+
+
 def set_invoice_policy(env):
     value = env['ir.values'].get_default('sale.order', 'order_policy')
     policy = 'delivery' if value == 'picking' else 'order'
@@ -241,6 +260,7 @@ def migrate(cr, version):
     set_invoice_policy(env)
     set_track_service(cr)
     set_crm_team_message_types(env)
+    custom_account_invoice_discount_lines_compat(env)
     set_so_line_amounts(env)
     set_so_line_computed_rest(env)
     openupgrade.load_data(
