@@ -63,7 +63,7 @@ def set_so_line_amounts(env):
     fields that depends on these fields.
     """
     lines = env['sale.order.line'].search([])
-    for line in lines:
+    for line in openupgrade.chunked(lines):
         price = line.price_unit * (1 - (line.discount or 0.0) / 100.0)
         taxes = line.tax_id.compute_all(
             price, line.order_id.currency_id, line.product_uom_qty,
