@@ -67,4 +67,5 @@ def migrate_deferred(cr, pool):
         with api.Environment.manage():
             env = api.Environment(cr, SUPERUSER_ID, {})
             openupgrade_90.convert_binary_field_to_attachment(env, field_spec)
-    disable_invalid_filters(cr)
+    # Custom: defer filter invalidation until the target version 12.0
+    # disable_invalid_filters(cr)
