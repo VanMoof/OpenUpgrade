@@ -365,24 +365,25 @@ def migrate_reconcile(cr):
     # but have not been reconciled, and therefore were not updated by the
     # migration:
     cr.execute(
-        """\
-        WITH subquery AS (
-            SELECT
-                aml.id as id,
-                COALESCE(aml.debit, 0.0) - COALESCE(aml.credit, 0.0)
-                    AS amount_residual
-            FROM account_move_line aml
-            JOIN account_account aa on aml.account_id = aa.id
-            WHERE aa.reconcile
-              AND aml.reconcile_id IS NULL
-              AND aml.reconcile_partial_id IS NULL
-        )
-        UPDATE account_move_line aml
-        SET amount_residual = sq.amount_residual,
-            amount_residual_currency = aml.amount_currency
-        FROM subquery sq
-        WHERE aml.id = sq.id
-        """
+        """ UPDATE account_move_line aml
+        SET debit_cash_basis =
+            CASE WHEN aj.type IN ('sale', 'purchase')
+                 THEN ROUND(am.matched_percentage * aml.debit, 2)
+                 ELSE aml.debit
+            END,
+        credit_cash_basis =
+            CASE WHEN aj.type IN ('sale', 'purchase')
+                 THEN ROUND(am.matched_percentage * aml.credit, 2)
+                 ELSE aml.credit
+            END,
+        balance_cash_basis =
+            CASE WHEN aj.type IN ('sale', 'purchase')
+                 THEN ROUND(am.matched_percentage * (aml.debit - aml.credit),
+                            2)
+                 ELSE aml.debit - aml.credit
+            END
+        FROM account_move am JOIN account_journal aj ON aj.id = am.journal_id
+        WHERE aml.move_id = am.id """
     )
     _logger.info("Updated amount_residual for unreconciled lines.")
     # Now fill many2many relation to link invoices to payments
