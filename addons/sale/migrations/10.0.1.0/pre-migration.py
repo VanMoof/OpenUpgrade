@@ -158,6 +158,11 @@ def migrate_account_invoice_shipping_address(env):
     openupgrade.update_module_names(
         cr, [(module_name, 'sale')], merge_modules=True,
     )
+    # Custom
+    if openupgrade.column_exists(
+            cr, 'account_invoice', 'partner_shipping_id'):
+        cr.execute(
+            'ALTER TABLE account_invoice DROP COLUMN partner_shipping_id')
     openupgrade.rename_fields(env, [
         ('account.invoice', 'account_invoice', 'address_shipping_id',
          'partner_shipping_id')
