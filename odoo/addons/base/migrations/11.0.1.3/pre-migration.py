@@ -136,6 +136,21 @@ def rename_mass_mailing_event(env):
             [("mass_mailing_event", "mass_mailing_event_registration_exclude")],
             merge_modules=True)
 
+def precreate_partner_fields(cr):
+    """ Set new stored related field from the commercial partner """
+    cr.execute(
+        """ALTER TABLE res_partner
+        ADD COLUMN IF NOT EXISTS commercial_partner_country_id INT
+        """)
+    openupgrade.logged_query(
+        cr,
+        """UPDATE res_partner rp
+        SET commercial_partner_country_id = crp.country_id
+        FROM res_partner crp
+        WHERE crp.id = rp.commercial_partner_id
+            AND crp.is_company AND crp.country_id IS NOT NULL
+        """)
+
 
 @openupgrade.migrate()
 def migrate(env, version):
@@ -185,3 +200,4 @@ def migrate(env, version):
     # Rename 'mass_mailing_event' module to not collide with the new
     # core module with the same name.
     rename_mass_mailing_event(env)
+    precreate_partner_fields(env.cr)
