@@ -136,7 +136,7 @@ merged_modules = [
     # OCA/l10n-spain
     ('l10n_es_account_financial_report', 'account_journal_report'),
     # OCA/stock-logistics-workflow
-    ('product_unique_serial': 'stock'),
+    ('product_unique_serial', 'stock'),
     ('stock_dropshipping_dual_invoice', 'stock_dropshipping'),
 ]
 
