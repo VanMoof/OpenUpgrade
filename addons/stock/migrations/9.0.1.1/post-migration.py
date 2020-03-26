@@ -12,26 +12,41 @@ def _migrate_tracking(cr):
     cr.execute(
         "update product_template set tracking='lot' where "
         "track_all or track_incoming or track_outgoing")
-    # some of them might be better off as serial tracking, we use lots
-    # of size 1 as indicator for that
-    openupgrade.logged_query(
-        cr,
-        """ WITH lot_quantities AS (
-            SELECT l.id, l.product_id, pp.product_tmpl_id,
-                SUM(qty) sum_qty
-            FROM stock_production_lot l
-            JOIN product_product pp ON pp.id = l.product_id
-            JOIN stock_quant q ON q.lot_id = l.id
-            GROUP BY l.id, pp.product_tmpl_id, l.product_id)
-        UPDATE product_template pt
-        SET tracking='serial'
-        FROM lot_quantities
-        WHERE pt.id = lot_quantities.product_tmpl_id
-            AND pt.tracking = 'lot'
-            AND NOT EXISTS (
-                SELECT id FROM lot_quantities
-                WHERE pt.id = lot_quantities.product_tmpl_id
-                    AND lot_quantities.sum_qty <> 1); """)
+    # Some of them might be better off as serial tracking.
+    # Maybe product_unique_serial was installed
+    cr.execute(
+        """ SELECT COUNT(*) FROM ir_model_data
+        WHERE name = 'view_product_unique_serial_form' AND module = 'stock'
+        """)
+    if cr.fetchone()[0] AND openupgrade.column_exists(
+            cr, 'product_template', 'lot_unique_ok'):
+        openupgrade.logged_query(
+            """\
+            UPDATE product_template
+            SET tracking = 'serial'
+            WHERE lot_unique_ok AND pt.tracking = 'lot'
+            """)
+    else:
+        # Otherwise, we use lots of size 1 as indicator for that
+        openupgrade.logged_query(
+            cr,
+            """\
+            WITH lot_quantities AS (
+                SELECT l.id, l.product_id, pp.product_tmpl_id,
+                    SUM(qty) sum_qty
+                FROM stock_production_lot l
+                JOIN product_product pp ON pp.id = l.product_id
+                JOIN stock_quant q ON q.lot_id = l.id
+                GROUP BY l.id, pp.product_tmpl_id, l.product_id)
+            UPDATE product_template pt
+            SET tracking='serial'
+            FROM lot_quantities
+            WHERE pt.id = lot_quantities.product_tmpl_id
+                AND pt.tracking = 'lot'
+                AND NOT EXISTS (
+                    SELECT id FROM lot_quantities
+                    WHERE pt.id = lot_quantities.product_tmpl_id
+                        AND lot_quantities.sum_qty <> 1); """)
 
 
 def _migrate_pack_operation(env):
