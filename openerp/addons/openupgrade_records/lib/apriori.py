@@ -26,7 +26,6 @@ renamed_modules = {
     'account_refund_original': 'account_invoice_refund_link',
     'invoice_fiscal_position_update': 'account_invoice_fiscal_position_update',
     # OCA/stock-logistics-workflow
-    'product_unique_serial': 'stock',
     'stock_picking_reorder_lines': 'stock_picking_line_sequence',
     # OCA/purchase-workflow
     'purchase_order_reorder_lines': 'purchase_order_line_sequence',
@@ -137,6 +136,7 @@ merged_modules = [
     # OCA/l10n-spain
     ('l10n_es_account_financial_report', 'account_journal_report'),
     # OCA/stock-logistics-workflow
+    ('product_unique_serial': 'stock'),
     ('stock_dropshipping_dual_invoice', 'stock_dropshipping'),
 ]
 
