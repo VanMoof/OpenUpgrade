@@ -21,6 +21,7 @@ def _migrate_tracking(cr):
     if cr.fetchone()[0] and openupgrade.column_exists(
             cr, 'product_template', 'lot_unique_ok'):
         openupgrade.logged_query(
+            cr,
             """\
             UPDATE product_template
             SET tracking = 'serial'
