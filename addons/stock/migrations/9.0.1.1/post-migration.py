@@ -25,7 +25,7 @@ def _migrate_tracking(cr):
             """\
             UPDATE product_template
             SET tracking = 'serial'
-            WHERE lot_unique_ok AND pt.tracking = 'lot'
+            WHERE lot_unique_ok AND tracking = 'lot'
             """)
     else:
         # Otherwise, we use lots of size 1 as indicator for that
