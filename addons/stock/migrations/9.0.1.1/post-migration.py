@@ -18,7 +18,7 @@ def _migrate_tracking(cr):
         """ SELECT COUNT(*) FROM ir_model_data
         WHERE name = 'view_product_unique_serial_form' AND module = 'stock'
         """)
-    if cr.fetchone()[0] AND openupgrade.column_exists(
+    if cr.fetchone()[0] and openupgrade.column_exists(
             cr, 'product_template', 'lot_unique_ok'):
         openupgrade.logged_query(
             """\
