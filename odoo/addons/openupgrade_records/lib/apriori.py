@@ -92,6 +92,7 @@ merged_modules = {
     'vanmoof_paazl': 'vanmoof_shipping',
     'zb_shipping_base': 'vanmoof_shipping',
     'zb_shipping_ups': 'vanmoof_shipping',
+    'stock_picking_split': 'stock_split_picking',
 }
 
 # only used here for openupgrade_records analysis:
