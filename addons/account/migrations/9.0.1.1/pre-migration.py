@@ -183,18 +183,25 @@ FAST_CREATIONS = [
 
 
 def migrate_properties(cr):
-    for model, name_v8, name_v9 in PROPERTY_FIELDS:
-        openupgrade.logged_query(cr, """
-            update ir_model_fields
-            set name = '{name_v9}'
-            where name = '{name_v8}'
-            and model = '{model}'
-            """.format(model=model, name_v8=name_v8, name_v9=name_v9))
-        openupgrade.logged_query(cr, """
-            update ir_property
-            set name = '{name_v9}'
-            where name = '{name_v8}'
-            """.format(name_v8=name_v8, name_v9=name_v9))
+    """Rename properties by field name in the ir_property table.
+    Don't use openupgradelib's version as it renames the field just like
+    rename_fields does, and renaming twice is harmful.
+    """
+    for model, old_name, new_name in PROPERTY_FIELDS:
+        openupgrade.logged_query(
+            cr,
+            """ \
+            update ir_property ip
+            set name = %(new_name)s
+            from ir_model_fields imf
+            where imf.model = %(model)s and imf.name in (%(old_name)s, %(new_name)s)
+                and ip.fields_id = imf.id and ip.name = %(old_name)s
+            """,
+            {
+                "old_name": old_name,
+                "new_name": new_name,
+                "model": model,
+            })
 
 
 def remove_account_moves_from_special_periods(cr):

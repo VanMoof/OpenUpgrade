@@ -17,23 +17,25 @@ field_renames = [
 
 
 def rename_property(cr, model, old_name, new_name):
-    # TODO: use openupgradelib's version when #52 is merged
     """Rename property old_name owned by model to new_name. This should happen
-    in a pre-migration script."""
-    cr.execute(
-        "update ir_model_fields f set name=%s "
-        "from ir_model m "
-        "where m.id=f.model_id and m.model=%s and f.name=%s "
-        "returning f.id",
-        (new_name, model, old_name))
-    field_ids = tuple(i for i, in cr.fetchall())
-    cr.execute(
-        "update ir_model_data set name=%s where model='ir.model.fields' and "
-        "res_id in %s",
-        ('%s,%s' % (model, new_name), field_ids))
-    cr.execute(
-        "update ir_property set name=%s where fields_id in %s",
-        (new_name, field_ids))
+    in a pre-migration script.
+    Don't use openupgradelib's version as it renames the field just like
+    rename_fields does, and renaming twice is harmful.
+    """
+    openupgrade.logged_query(
+        cr,
+        """ \
+        update ir_property ip
+        set name = %(new_name)s
+        from ir_model_fields imf
+        where imf.model = %(model)s and imf.name in (%(old_name)s, %(new_name)s)
+            and ip.fields_id = imf.id and ip.name = %(old_name)s
+        """,
+        {
+            "old_name": old_name,
+            "new_name": new_name,
+            "model": model,
+        })
 
 
 @openupgrade.migrate(use_env=True)
