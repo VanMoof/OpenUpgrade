@@ -328,7 +328,9 @@ class MailActivityMixin(models.AbstractModel):
         groups="base.group_user")
     activity_date_deadline = fields.Date(
         'Next Activity Deadline', related='activity_ids.date_deadline',
-        readonly=True, store=True,  # store to enable ordering + search
+        # OpenUpgrade/custom: don't store this field as it's not stored
+        # in 12 anymore.
+        readonly=True, store=False,  # store to enable ordering + search
         groups="base.group_user")
     activity_summary = fields.Char(
         'Next Activity Summary',
