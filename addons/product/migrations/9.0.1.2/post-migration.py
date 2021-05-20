@@ -6,6 +6,7 @@
 
 from openupgradelib import openupgrade
 from openupgradelib import openupgrade_90
+from psycopg2.extensions import AsIs
 
 attachment_fields = {
     'product.template': [
@@ -276,6 +277,79 @@ def update_product_supplierinfo(env):
             AND rc.currency_id != pp.currency_id """)
 
 
+def migrate_purchase_pricelists(env):
+    """ Create product.supplierinfo records for "simple" pricelist items,
+    those are items based on a field (not other pricelist or supplier items)"""
+    env.cr.execute("select id, field from product_price_type")
+    for type_id, field_name in env.cr.fetchall():
+        if not openupgrade.column_exists(env.cr, 'product_template', field_name):
+            continue
+        env.cr.execute(
+            """
+            with partner2pricelist_id as (
+                select
+                    split_part(res_id, ',', 2)::int partner_id,
+                    split_part(value_reference, ',', 2)::int pricelist_id,
+                    company_id
+                from ir_property
+                where
+                fields_id in (
+                    select res_id from ir_model_data
+                    where name='field_res_partner_property_product_pricelist_purchase'
+                ) and
+                res_id is not null and value_reference is not null
+            ),
+            partner2pricelist as (
+                select
+                    partner_id, pp.id pricelist_id, p2p.company_id, currency_id
+                from partner2pricelist_id p2p
+                join product_pricelist pp on p2p.pricelist_id=pp.id and pp.active
+            ),
+            partner2version as (
+                select
+                    partner_id, ppv.id version_id, p2p.company_id,
+                    p2p.currency_id, date_start, date_end
+                from partner2pricelist p2p
+                join product_pricelist_version ppv
+                    on ppv.pricelist_id=p2p.pricelist_id and active
+            ),
+            partner2item as (
+                select
+                    partner_id, ppi.id item_id, p2v.company_id, p2v.currency_id,
+                    p2v.date_start, p2v.date_end, price_discount, price_surcharge,
+                    product_id, product_tmpl_id, min_quantity
+                from partner2version p2v
+                join product_pricelist_item ppi
+                    on ppi.openupgrade_legacy_9_0_price_version_id=p2v.version_id
+                where openupgrade_legacy_9_0_base=%(type_id)s and (
+                    product_id is not null or product_tmpl_id is not null
+                )
+            )
+            insert into product_supplierinfo
+            (
+                name, min_qty, currency_id, date_start, date_end,
+                company_id, product_id, product_tmpl_id, price
+            )
+            select
+            partner_id, min_quantity, currency_id, p2i.date_start, p2i.date_end,
+            p2i.company_id, p2i.product_id, p2i.product_tmpl_id,
+            coalesce(pt1.%(field_name)s, pt2.%(field_name)s) *
+            (1 + price_discount) + price_surcharge
+            from partner2item p2i
+            join res_partner p on p.id=p2i.partner_id
+            left join product_product pp on p2i.product_id=pp.id
+            left join product_template pt1 on pp.product_tmpl_id=pt1.id
+            left join product_template pt2
+                on p2i.product_id is null and p2i.product_tmpl_id=pt2.id
+            where p.active and p.supplier
+            """,
+            {
+                'field_name': AsIs(field_name),
+                'type_id': type_id,
+            },
+        )
+
+
 @openupgrade.migrate(use_env=True)
 def migrate(env, version):
     map_base(env.cr)
@@ -284,6 +358,7 @@ def migrate(env, version):
     update_product_product(env.cr)
     update_product_template(env.cr)
     map_product_template_type(env.cr)
+    migrate_purchase_pricelists(env)
     # this field's semantics was updated to its name
     env.cr.execute(
         'update product_pricelist_item set price_discount=-price_discount*100'
