@@ -690,6 +690,7 @@ def update_year_opening_entries(env):
                 'user_type_id': unaffected_earnings_xml.id,
                 'company_id': company.id, })
         openupgrade.logged_query(
+            env.cr,
             """
             UPDATE account_move_line aml
             SET account_id = %s
