@@ -281,7 +281,11 @@ def remove_account_moves_from_special_periods(cr):
             WHERE name = 'Year opening entry'
         )
         AND m.id <> 21856
+        RETURNING m.id, m.name
     """)
+    for row in cr.fetchall():
+        logger.info("Deleted opening balance account.move#%s (%s)",
+                    row[0], row[1])
 
 
 def install_account_tax_python(cr):
