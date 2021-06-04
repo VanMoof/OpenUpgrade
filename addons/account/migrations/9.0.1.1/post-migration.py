@@ -1340,6 +1340,36 @@ def migrate(env, version):
     update_account_invoice_date(cr)
     update_move_date(cr)
     fill_bank_accounts(cr)
+    cr.execute('alter table account_account_tag add column code_id int')
+    cr.execute(
+        'alter table account_account_tag add column tax_reporting boolean'
+    )
+    cr.execute(
+        """
+        with recursive group2root (group_id, root_id) as (
+            select id, id from account_tax_group
+            where parent_id is null
+            union
+            select g.id, g2r.root_id
+            from account_tax_group g
+            join group2root g2r on
+            g.parent_id=g2r.group_id
+        ),
+        tag2code (tag_id, code_id) as (
+            insert into account_account_tag (
+                name, code_id, applicability, tax_reporting
+            )
+            select name, id, 'taxes', True from account_tax_group
+            where parent_id is null and
+            company_id not in (4, 11)
+            returning id, code_id
+        )
+        insert into account_tax_account_tag (account_tax_id, account_account_tag_id)
+        select account_tax.id, tag2code.tag_id
+        from account_tax
+        join group2root on account_tax.tax_group_id=group2root.group_id
+        join tag2code on group2root.root_id=tag2code.code_id"""
+    )
     openupgrade.load_data(
         cr, 'account', 'migrations/9.0.1.1/noupdate_changes.xml',
     )
