@@ -1357,9 +1357,9 @@ def migrate(env, version):
         ),
         tag2code (tag_id, code_id) as (
             insert into account_account_tag (
-                name, code_id, active, applicability, tax_reporting
+                name, code_id, applicability, tax_reporting
             )
-            select name, id, True, 'taxes', True from account_tax_group
+            select name, id, 'taxes', True from account_tax_group
             where parent_id is null and
             company_id not in (4, 11)
             returning id, code_id
