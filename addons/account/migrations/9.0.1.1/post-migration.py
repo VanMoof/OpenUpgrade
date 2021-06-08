@@ -1357,15 +1357,15 @@ def migrate(env, version):
         ),
         tag2code (tag_id, code_id) as (
             insert into account_account_tag (
-                name, code_id, applicability, tax_reporting
+                name, code_id, active, applicability, tax_reporting
             )
-            select name, id, 'taxes', True from account_tax_group
+            select name, id, True, 'taxes', True from account_tax_group
             where parent_id is null and
             company_id not in (4, 11)
             returning id, code_id
         )
         insert into account_tax_account_tag (account_tax_id, account_account_tag_id)
-        select account_tax.id, tag2code.tag_id
+        select distinct account_tax.id, tag2code.tag_id
         from account_tax
         join group2root on account_tax.tax_group_id=group2root.group_id
         join tag2code on group2root.root_id=tag2code.code_id"""
