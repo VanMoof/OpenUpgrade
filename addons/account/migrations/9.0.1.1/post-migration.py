@@ -1370,6 +1370,15 @@ def migrate(env, version):
         join group2root on account_tax.tax_group_id=group2root.group_id
         join tag2code on group2root.root_id=tag2code.code_id"""
     )
+    cr.execute(
+        """
+        update account_account_tag aat
+        set name=irt.value
+        from ir_translation irt
+        where irt.name='account.tax.code,name' and
+        irt.lang='en_GB' and irt.res_id=aat.code_id
+        """
+    )
     openupgrade.load_data(
         cr, 'account', 'migrations/9.0.1.1/noupdate_changes.xml',
     )
