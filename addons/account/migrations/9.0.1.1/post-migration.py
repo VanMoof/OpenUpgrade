@@ -462,51 +462,59 @@ def fill_move_taxes(env):
     the same ordering as for tax codes. Set this tax as the line's base
     code (tax_ids).
     """
-    env.cr.execute(
-        "SELECT tax_code_id FROM account_move_line GROUP BY tax_code_id"
-    )
-    for row in env.cr.fetchall():
-        if not row[0]:
-            continue
-        tax_code_id = row[0]
-        # TAX AMOUNT
-        env.cr.execute(
-            """SELECT id FROM account_tax
-            WHERE tax_code_id=%(tax_code_id)s
-            OR ref_tax_code_id=%(tax_code_id)s
-            ORDER BY active DESC, sequence
-            LIMIT 1""",
-            {'tax_code_id': tax_code_id},
+    openupgrade.logged_query(
+        cr,
+        """
+        -- map tax_line_id for all move lines
+        with ml2tax as (
+            SELECT
+                aml.id as aml_id,
+                at.id as tax_id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY aml.id
+                    ORDER BY (
+                        aml.account_id != at.account_id
+                        AND aml.account_id != at.refund_account_id),
+                        at.active IS NOT TRUE,
+                        at.sequence,
+                        at.id
+                    ) AS rn
+            FROM account_move_line aml
+            JOIN account_tax at ON aml.tax_code_id = at.tax_code_id
+                OR aml.tax_code_id = at.ref_tax_code_id
+            WHERE (aml.tax_amount < 0 or aml.tax_amount > 0)
         )
-        row_tax = env.cr.fetchone()
-        if row_tax:
-            openupgrade.logged_query(
-                env.cr,
-                """UPDATE account_move_line
-                SET tax_line_id = %s
-                WHERE tax_code_id = %s
-                AND (tax_amount > 0 OR tax_amount < 0)""",
-                (row_tax[0], tax_code_id))
-        else:
-            # BASE AMOUNT
-            env.cr.execute(
-                """SELECT id FROM account_tax
-                WHERE base_code_id=%(tax_code_id)s OR
-                ref_base_code_id=%(tax_code_id)s
-                ORDER BY active DESC, sequence
-                LIMIT 1""", {'tax_code_id': tax_code_id},
-            )
-            row_base = env.cr.fetchone()
-            if row_base:
-                openupgrade.logged_query(
-                    env.cr,
-                    """INSERT INTO account_move_line_account_tax_rel
-                    (account_move_line_id, account_tax_id)
-                    SELECT id, %s
-                    FROM account_move_line
-                    WHERE tax_code_id=%s
-                    AND (tax_amount > 0 OR tax_amount < 0)""",
-                    (row_base[0], tax_code_id))
+        UPDATE account_move_line aml
+        SET tax_line_id = ml2tax.tax_id
+        FROM ml2tax
+        WHERE ml2tax.rn = 1  AND aml.id = ml2tax.aml_id;
+        """)
+    openupgrade.logged_query(
+        cr,
+        """
+        -- map tax_ids for all move lines
+        with ml2tax as (
+            SELECT
+                aml.id as aml_id,
+                at.id as tax_id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY aml.id
+                    ORDER BY
+                        at.active IS NOT TRUE,
+                        at.sequence,
+                        at.id
+                ) AS rn
+            FROM account_move_line aml
+            JOIN account_tax at ON aml.tax_code_id = at.base_code_id
+                OR aml.tax_code_id = at.ref_base_code_id
+            WHERE (aml.tax_amount < 0 or aml.tax_amount > 0)
+        )
+        INSERT INTO account_move_line_account_tax_rel
+        (account_move_line_id, account_tax_id)
+        SELECT aml_id, tax_id
+        FROM ml2tax
+        WHERE ml2tax.rn = 1;
+        """)
 
 
 def fill_account_invoice_tax_taxes(env, manual_tax_code_mapping=None):
