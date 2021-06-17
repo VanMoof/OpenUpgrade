@@ -127,6 +127,55 @@ def set_so_line_computed_invoicing_fields(env):
         END""")
 
 
+def __custom__tax_chart_to_tags(cr):
+    """ Keep the segmentation of taxes according to the various tax charts
+    in our main company setup.
+
+    This needs to be in the deferred script because the native Odoo l10n_
+    tax tag migration scripts overwrite the tags on some of the taxes.
+    """
+    cr.execute('alter table account_account_tag add column code_id int')
+    cr.execute(
+        'alter table account_account_tag add column tax_reporting boolean'
+    )
+    cr.execute(
+        """
+        with recursive group2root (group_id, root_id) as (
+            select id, id from account_tax_group
+            where parent_id is null
+            union
+            select g.id, g2r.root_id
+            from account_tax_group g
+            join group2root g2r on
+            g.parent_id=g2r.group_id
+        ),
+        tag2code (tag_id, code_id) as (
+            insert into account_account_tag (
+                name, code_id, applicability, tax_reporting
+            )
+            select name, id, 'taxes', True from account_tax_group
+            where parent_id is null and
+            company_id not in (4, 11)
+            returning id, code_id
+        )
+        insert into account_tax_account_tag
+        (account_tax_id, account_account_tag_id)
+        select distinct account_tax.id, tag2code.tag_id
+        from account_tax
+        join group2root on account_tax.tax_group_id=group2root.group_id
+        join tag2code on group2root.root_id=tag2code.code_id"""
+    )
+    cr.execute(
+        """
+        update account_account_tag aat
+        set name=irt.value
+        from ir_translation irt
+        where irt.name='account.tax.code,name' and
+        irt.lang='en_GB' and irt.res_id=aat.code_id
+        """
+    )
+
+
 def migrate_deferred(cr, pool):
     """ Convert attachment style binary fields """
     logger.info('Deferred migration step called')
@@ -151,3 +200,4 @@ def migrate_deferred(cr, pool):
         if field_spec:
             openupgrade_90.convert_binary_field_to_attachment(env, field_spec)
     disable_invalid_filters(cr)
+    __custom__tax_chart_to_tags(cr)
