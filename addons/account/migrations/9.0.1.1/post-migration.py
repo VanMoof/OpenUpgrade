@@ -463,7 +463,7 @@ def fill_move_taxes(env):
     code (tax_ids).
     """
     openupgrade.logged_query(
-        cr,
+        env.cr,
         """
         -- map tax_line_id for all move lines
         with ml2tax as (
@@ -490,7 +490,7 @@ def fill_move_taxes(env):
         WHERE ml2tax.rn = 1  AND aml.id = ml2tax.aml_id;
         """)
     openupgrade.logged_query(
-        cr,
+        env.cr,
         """
         -- map tax_ids for all move lines
         with ml2tax as (
