@@ -23,8 +23,10 @@ base         / res.currency             / symbol (char)                 : now re
 # Use the value of name if symbol is blank
 base         / res.partner              / company_name (char)           : NEW
 base         / res.partner              / company_type (selection)      : now a function
+# Nothing to do
+
 base         / res.partner              / use_parent_address (boolean)  : DEL
-# NOTHING TO DO
+# Align with partner type 'contact'
 
 base         / res.partner              / birthdate (char)              : DEL
 # Done: Preserve field in case of being needed

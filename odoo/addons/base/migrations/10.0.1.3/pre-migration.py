@@ -189,6 +189,33 @@ def precreate_partner_fields(cr):
         """)
 
 
+def align_partner_type_with_address_sync(cr):
+    """use_parent_address is replaced by address type logic.
+
+    Addresses are now synced with the parent if the partner type is 'contact'.
+    Therefore, set addresses of type 'other' to 'contact' if they had the
+    `use_parent_address` flag in 9.0, and vice versa.
+    """
+    openupgrade.logged_query(
+        cr,
+        """
+        UPDATE res_partner
+        SET type = 'contact'
+        WHERE type = 'other'
+            AND use_parent_address
+            AND parent_id IS NOT NULL;
+        """)
+    openupgrade.logged_query(
+        cr,
+        """
+        UPDATE res_partner
+        SET type = 'other'
+        WHERE type = 'contact'
+            AND use_parent_address IS NOT TRUE
+            AND parent_id IS NOT NULL;
+        """)
+
+
 @openupgrade.migrate(use_env=False)
 def migrate(cr, version):
     openupgrade.update_module_names(
@@ -237,6 +264,7 @@ def migrate(cr, version):
         from res_lang''')
     ensure_country_state_id_on_existing_records(cr)
     precreate_partner_fields(cr)
+    align_partner_type_with_address_sync(cr)
     openupgrade.update_module_names(
         cr, apriori.merged_modules, merge_modules=True,
     )
